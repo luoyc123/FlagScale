@@ -118,6 +118,19 @@ def _get_serve_engine_args(config, model="vllm_model"):
     return engine_args
 
 
+def _get_profile_args(config, model="vllm_model"):
+    serve_config = config.get("serve", [])
+    if not serve_config:
+        raise ValueError(f"No 'serve' configuration found in task config: {serve_config}")
+
+    profile_args = {}
+    for item in serve_config:
+        if item.get("serve_id", None) in ("vllm_model", "sglang_model"):
+            profile_args = item.get("profile", {})
+            break
+    return profile_args
+
+
 def _get_args_sglang(config: DictConfig):
     # see the following link for more details
     # https://github.com/facebookresearch/hydra/discussions/2750
@@ -581,15 +594,16 @@ class VllmBackend(BackendBase):
                     OmegaConf.set_struct(self.config, True)
                 else:
                     raise ValueError(f"The hostfile {hostfile_path} does not exist")
-
             if (
                 self.config.experiment.get("runner", {})
                 .get("deploy", {})
                 .get("prefill_decode_disaggregation", False)
             ):
                 self.user_script = "flagscale/serve/run_disagg_xpyd_router.py"
-            else:
+            elif not self.config.experiment.runner.deploy.use_fs_serve:
                 self.user_script = "flagscale/serve/run_inference_engine.py"
+            else:
+                self.user_script = "flagscale/serve/run_fs_serve_vllm.py"
 
         logger.info("\n************** configuration **************")
         logger.info(f"\n{OmegaConf.to_yaml(self.config)}")
@@ -1205,15 +1219,16 @@ class SglangBackend(BackendBase):
                 OmegaConf.set_struct(self.config, True)
             else:
                 raise ValueError(f"The hostfile {hostfile_path} does not exist")
-
         if (
             self.config.experiment.get("runner", {})
             .get("deploy", {})
             .get("prefill_decode_disaggregation", False)
         ):
             self.user_script = "flagscale/serve/run_disagg_xpyd_router.py"
-        else:
+        elif not self.config.experiment.runner.deploy.use_fs_serve:
             self.user_script = "flagscale/serve/run_inference_engine.py"
+        else:
+            self.user_script = "flagscale/serve/run_fs_serve_vllm.py"
 
         logger.info("\n************** Sglang Configuration **************")
         logger.info(f"\n{OmegaConf.to_yaml(self.config)}")
@@ -1810,7 +1825,6 @@ class ServeNativeBackend(BackendBase):
         self.user_args = _get_args_ray(self.config)
         self.user_envs = self.config.experiment.get("envs", {})
         entrypoint = self.config.experiment.task.get("entrypoint", None)
-
         if entrypoint:
             self.user_script = entrypoint
         elif self.use_fs_serve:
