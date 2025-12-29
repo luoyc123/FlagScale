@@ -1825,6 +1825,7 @@ class ServeNativeBackend(BackendBase):
         self.user_args = _get_args_ray(self.config)
         self.user_envs = self.config.experiment.get("envs", {})
         entrypoint = self.config.experiment.task.get("entrypoint", None)
+
         if entrypoint:
             self.user_script = entrypoint
         elif self.use_fs_serve:
